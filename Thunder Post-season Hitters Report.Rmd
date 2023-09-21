@@ -1,0 +1,299 @@
+---
+title: ''
+header-includes:
+- "\\usepackage{fancyhdr}"
+- "\\pagestyle{fancy}"
+- "\\fancyhead[CO,CE]{}"
+- "\\usepackage{pdflscape}"
+- "\\newcommand{\\blandscape}{\\begin{landscape}}"
+- "\\newcommand{\\elandscape}{\\end{landscape}}"
+output:
+  pdf_document: default
+geometry: left=1cm,right=1cm,top=0.8cm,bottom=0cm
+tables: true
+params:
+  player: "Guerrera, Justin"
+  file: "/Users/ellisschwartz/Desktop/MLB Draft League/SeasonDataBothHalves.csv"
+  dataframe: SznCSV
+---
+```{r setup, include=FALSE}
+library(tidyverse)
+library(dplyr)
+library(ggplot2)
+library(ggthemes)
+library(hrbrthemes)
+library(ggstream)
+library(ggridges)
+library(kableExtra)
+library(baseballr)
+SznCSV <- tryCatch({read.csv(params$file)}, 
+                    error = function(e){
+                    params$dataframe  
+                    }
+)
+Title <- paste("Season Hitting Report for", params$player, SznCSV$UTCDate[1], sep = ' ')
+SznCSV <- data.frame(SznCSV)
+HitterData <- SznCSV %>% filter(batter == params$player)
+HitterData$taggedpitchtype <- ifelse(HitterData$taggedpitchtype == 'Fastball', 'FourSeamFastBall', HitterData$taggedpitchtype)
+
+HitterData <- HitterData%>%
+   unite(col='count',c(balls,strikes),sep='-')
+#View(HitterData)
+############ Here I create the table at the top of the page. It uses 25th-75th percentile velocity and takes the mean of other metrics
+
+PitchByPitch <- HitterData %>% 
+  replace(is.na(.), 0)%>%
+  group_by(taggedpitchtype) %>%
+  summarise(
+    "Percentage of Pitches Seen" = round(n()/nrow(HitterData)*100,digits = 1),
+    'Zone %' = round(sum(platelocheight < 3.5 & platelocheight > 1.5 & abs(platelocside) < .83)/n()*100,digits = 1),
+    'Swing %' = round(sum(pitchcall == "InPlay" | pitchcall == "StrikeSwinging" | pitchcall == "FoulBall")/n()*100,digits=1),
+    'HardHit %' = round(sum(pitchcall == "InPlay" & exitspeed >95)/sum(pitchcall== "InPlay")*100, digits = 1),
+    'Whiff %' = round(sum(pitchcall == "StrikeSwinging")/n()*100,digits = 1),
+    'Z-Swing %' = round(sum((platelocheight < 3.5 & platelocheight > 1.5 & abs(platelocside) < .83) & (pitchcall == "InPlay" | pitchcall == "StrikeSwinging" | pitchcall == "FoulBall"))/n()*100,digits = 1),
+    'Z-Contact %' = round(sum((platelocheight < 3.5 & platelocheight > 1.5 & abs(platelocside) < .83) & (pitchcall == "InPlay" |pitchcall == "FoulBall"))/n()*100,digits = 1),
+    'Chase %' = round(sum((platelocheight > 3.5 | platelocheight < 1.5 | abs(platelocside) > .83)& (pitchcall == "InPlay" | pitchcall == "StrikeSwinging" | pitchcall == "FoulBall"))/n()*100,digits = 1),
+    'O-Contact %' = round(sum((platelocheight > 3.5 | platelocheight < 1.5 | abs(platelocside) > .83)& (pitchcall == "InPlay" | pitchcall == "FoulBall"))/n()*100,digits = 1))%>%
+rename(Pitch = taggedpitchtype) %>%  # Rename the column for clarity
+arrange(desc(`Percentage of Pitches Seen`))%>%
+  replace(is.na(.), 0)
+
+#Ahead in the count swings table
+AheadSwings <- HitterData%>%
+   filter(count == "0-0"| count == "1-0"|count == "2-1"|count == "2-0"|count == "3-1"|count == "3-0",pitchcall == "StrikeSwinging" | pitchcall == "InPlay" | pitchcall == "FoulBall")
+ 
+AheadTable <- AheadSwings%>%
+  group_by(taggedpitchtype)%>%
+  summarise("% of Swings" = round(sum(pitchcall == "StrikeSwinging" | pitchcall == "InPlay" | pitchcall == "FoulBall")/nrow(AheadSwings)*100,digits = 1),
+            "Hard Hit %" = round(sum(pitchcall == "InPlay" & exitspeed > 95)/sum(pitchcall == "InPlay")*100,digits = 1),
+            "Barrel %" = round(sum(pitchcall == "InPlay" & exitspeed > 95 & angle >10 & angle < 35)/sum(pitchcall == "InPlay")*100,digits = 1))%>%
+  rename(Pitch = taggedpitchtype) %>%
+  arrange(desc(`% of Swings`))%>%
+  replace(is.na(.), 0)
+  
+BehindSwings <- HitterData%>%
+   filter(count == "0-1"| count == "1-1"|count == "0-2"|count == "2-2"| count == "1-2",pitchcall == "StrikeSwinging" | pitchcall == "InPlay" | pitchcall == "FoulBall")  
+
+BehindTable <- BehindSwings%>%
+  group_by(taggedpitchtype)%>%
+  summarise("% of Swings" = round(sum(pitchcall == "StrikeSwinging" | pitchcall == "InPlay" | pitchcall == "FoulBall")/nrow(AheadSwings)*100,digits = 1),
+            "Hard Hit %" = round(sum(pitchcall == "InPlay" & exitspeed > 95)/sum(pitchcall == "InPlay")*100,digits = 1),
+            "Barrel %" = round(sum(pitchcall == "InPlay" & exitspeed > 95 & angle >10 & angle < 35)/sum(pitchcall == "InPlay")*100,digits = 1))%>%
+  rename(Pitch = taggedpitchtype) %>%
+  arrange(desc(`% of Swings`))%>%
+  replace(is.na(.), 0)
+  
+
+#location plot by pitch 
+Zone <- data.frame(x = c(-.83,.83,.83,-.83), y = c(1.5,1.5,3.5,3.5))
+Heart <- data.frame(x = c(-.6,.6,.6,-.6), y = c(1.8,1.8,3.2,3.2))
+SwingPlot <- HitterData%>%
+  filter(pitchcall == "InPlay" | pitchcall == "StrikeSwinging" | pitchcall == "FoulBall")%>%
+ggplot(aes(x = platelocside, y = platelocheight)) +geom_density_2d_filled(bins = 9,alpha = 0.8)+scale_fill_brewer()+theme(legend.position="none")+
+  geom_polygon(data = Zone, inherit.aes = F,aes(x=x,y=y), color = 'black', fill = 'transparent')+
+  geom_polygon(data = Heart, inherit.aes = F,aes(x=x,y=y), color = 'black', fill = 'transparent', linetype = 'dashed')+
+  geom_point()+
+  geom_segment(aes(x = -0.708, y = 0.15, xend = 0.708, yend = 0.15), size = 0.5, color = "black") +
+  geom_segment(aes(x = -0.708, y = 0.3, xend = -0.708, yend = 0.15), size = 0.5, color = "black") +
+  geom_segment(aes(x = -0.708, y = 0.3, xend = 0, yend = 0.5), size = 0.5, color = "black") +
+  geom_segment(aes(x = 0, y = 0.5, xend = 0.708, yend = 0.3), size = 0.5, color = "black") +
+  geom_segment(aes(x = 0.708, y = 0.3, xend = 0.708, yend = 0.15), size = 0.5, color = "black") +
+  scale_x_continuous(limits = c(-2,2)) +
+  scale_y_continuous(limits = c(0,5)) +
+  labs(color = "Pitch Types", title = "Swings Plot")
+
+SwingMiss <- HitterData%>%
+  filter(pitchcall == "StrikeSwinging")%>%
+  ggplot(aes(x = platelocside, y = platelocheight)) +geom_density_2d_filled(bins=9,alpha = 0.8)+scale_fill_brewer()+theme(legend.position="none")+geom_point()+
+  geom_polygon(data = Zone, inherit.aes = F,aes(x=x,y=y), color = 'black', fill = 'transparent')+
+  geom_polygon(data = Heart, inherit.aes = F,aes(x=x,y=y), color = 'black', fill = 'transparent', linetype = 'dashed')+
+  geom_segment(aes(x = -0.708, y = 0.15, xend = 0.708, yend = 0.15), size = 0.5, color = "black") +
+  geom_segment(aes(x = -0.708, y = 0.3, xend = -0.708, yend = 0.15), size = 0.5, color = "black") +
+  geom_segment(aes(x = -0.708, y = 0.3, xend = 0, yend = 0.5), size = 0.5, color = "black") +
+  geom_segment(aes(x = 0, y = 0.5, xend = 0.708, yend = 0.3), size = 0.5, color = "black") +
+  geom_segment(aes(x = 0.708, y = 0.3, xend = 0.708, yend = 0.15), size = 0.5, color = "black") +
+  scale_x_continuous(limits = c(-2,2)) +
+  scale_y_continuous(limits = c(0,5)) +
+  labs(title = "Swing+Miss Plot")
+
+
+SwingsAhead <- HitterData%>%
+  filter((pitchcall == "StrikeSwinging" | pitchcall == "InPlay" | pitchcall == "FoulBall")&(count == "0-0" | count == "1-0" | count == "2-0" | count == "3-0" | count == "2-1" | count == "3-1"))%>%
+  ggplot(aes(x = platelocside, y = platelocheight)) +geom_density_2d_filled(bins=9,alpha = 0.8)+scale_fill_brewer()+theme(legend.position="none")+geom_point()+
+  geom_polygon(data = Zone, inherit.aes = F,aes(x=x,y=y), color = 'black', fill = 'transparent')+
+  geom_polygon(data = Heart, inherit.aes = F,aes(x=x,y=y), color = 'black', fill = 'transparent', linetype = 'dashed')+
+  geom_segment(aes(x = -0.708, y = 0.15, xend = 0.708, yend = 0.15), size = 0.5, color = "black") +
+  geom_segment(aes(x = -0.708, y = 0.3, xend = -0.708, yend = 0.15), size = 0.5, color = "black") +
+  geom_segment(aes(x = -0.708, y = 0.3, xend = 0, yend = 0.5), size = 0.5, color = "black") +
+  geom_segment(aes(x = 0, y = 0.5, xend = 0.708, yend = 0.3), size = 0.5, color = "black") +
+  geom_segment(aes(x = 0.708, y = 0.3, xend = 0.708, yend = 0.15), size = 0.5, color = "black") +
+  scale_x_continuous(limits = c(-2,2)) +
+  scale_y_continuous(limits = c(0,5)) +
+  labs(title = "Swings Ahead In The Count")
+
+SwingsBehind <- HitterData%>%
+  filter((pitchcall == "StrikeSwinging" | pitchcall == "InPlay" | pitchcall == "FoulBall")&(count == "0-1" | count == "1-1" | count == "1-2" | count == "2-2" | count == "0-2"))%>%
+  ggplot(aes(x = platelocside, y = platelocheight)) +geom_density_2d_filled(bins=9,alpha = 0.8)+scale_fill_brewer()+theme(legend.position="none")+geom_point()+
+  geom_polygon(data = Zone, inherit.aes = F,aes(x=x,y=y), color = 'black', fill = 'transparent')+
+  geom_polygon(data = Heart, inherit.aes = F,aes(x=x,y=y), color = 'black', fill = 'transparent', linetype = 'dashed')+
+  geom_segment(aes(x = -0.708, y = 0.15, xend = 0.708, yend = 0.15), size = 0.5, color = "black") +
+  geom_segment(aes(x = -0.708, y = 0.3, xend = -0.708, yend = 0.15), size = 0.5, color = "black") +
+  geom_segment(aes(x = -0.708, y = 0.3, xend = 0, yend = 0.5), size = 0.5, color = "black") +
+  geom_segment(aes(x = 0, y = 0.5, xend = 0.708, yend = 0.3), size = 0.5, color = "black") +
+  geom_segment(aes(x = 0.708, y = 0.3, xend = 0.708, yend = 0.15), size = 0.5, color = "black") +
+  scale_x_continuous(limits = c(-2,2)) +
+  scale_y_continuous(limits = c(0,5)) +
+  labs(title = "Swings Behind In The Count")
+
+HardHit <- HitterData%>%
+  filter(pitchcall == "InPlay" & exitspeed >= 95)%>%
+  ggplot(aes(x = platelocside, y = platelocheight)) +geom_density_2d_filled(bins=9,alpha = 0.8)+scale_fill_brewer()+theme(legend.position="none")+geom_point()+
+  geom_polygon(data = Zone, inherit.aes = F,aes(x=x,y=y), color = 'black', fill = 'transparent')+
+  geom_polygon(data = Heart, inherit.aes = F,aes(x=x,y=y), color = 'black', fill = 'transparent', linetype = 'dashed')+
+  geom_segment(aes(x = -0.708, y = 0.15, xend = 0.708, yend = 0.15), size = 0.5, color = "black") +
+  geom_segment(aes(x = -0.708, y = 0.3, xend = -0.708, yend = 0.15), size = 0.5, color = "black") +
+  geom_segment(aes(x = -0.708, y = 0.3, xend = 0, yend = 0.5), size = 0.5, color = "black") +
+  geom_segment(aes(x = 0, y = 0.5, xend = 0.708, yend = 0.3), size = 0.5, color = "black") +
+  geom_segment(aes(x = 0.708, y = 0.3, xend = 0.708, yend = 0.15), size = 0.5, color = "black") +
+  scale_x_continuous(limits = c(-2,2)) +
+  scale_y_continuous(limits = c(0,5)) +
+  labs(title = "Hard Hit Balls")
+
+Barrels <- HitterData%>%
+  filter(pitchcall == "InPlay" & exitspeed >= 95 & angle  > 10 & angle < 35)%>%
+  ggplot(aes(x = platelocside, y = platelocheight)) +geom_density_2d_filled(bins=9,alpha = 0.8)+scale_fill_brewer()+theme(legend.position="none")+geom_point()+
+  geom_polygon(data = Zone, inherit.aes = F,aes(x=x,y=y), color = 'black', fill = 'transparent')+
+  geom_polygon(data = Heart, inherit.aes = F,aes(x=x,y=y), color = 'black', fill = 'transparent', linetype = 'dashed')+
+  geom_segment(aes(x = -0.708, y = 0.15, xend = 0.708, yend = 0.15), size = 0.5, color = "black") +
+  geom_segment(aes(x = -0.708, y = 0.3, xend = -0.708, yend = 0.15), size = 0.5, color = "black") +
+  geom_segment(aes(x = -0.708, y = 0.3, xend = 0, yend = 0.5), size = 0.5, color = "black") +
+  geom_segment(aes(x = 0, y = 0.5, xend = 0.708, yend = 0.3), size = 0.5, color = "black") +
+  geom_segment(aes(x = 0.708, y = 0.3, xend = 0.708, yend = 0.15), size = 0.5, color = "black") +
+  scale_x_continuous(limits = c(-2,2)) +
+  scale_y_continuous(limits = c(0,5)) +
+  labs(title = "Barrels (95+ and 10-35 LA)")
+
+SMVelo <- HitterData%>%
+  filter((pitchcall == "StrikeSwinging") & relspeed > 91)%>%
+  ggplot(aes(x = platelocside, y = platelocheight), alpha = 0.8) +geom_density_2d_filled(bins=9)+scale_fill_brewer()+theme(legend.position="none") + geom_point()+
+  geom_polygon(data = Zone, inherit.aes = F,aes(x=x,y=y), color = 'black', fill = 'transparent')+
+  geom_polygon(data = Heart, inherit.aes = F,aes(x=x,y=y), color = 'black', fill = 'transparent', linetype = 'dashed')+
+  geom_segment(aes(x = -0.708, y = 0.15, xend = 0.708, yend = 0.15), size = 0.5, color = "black") +
+  geom_segment(aes(x = -0.708, y = 0.3, xend = -0.708, yend = 0.15), size = 0.5, color = "black") +
+  geom_segment(aes(x = -0.708, y = 0.3, xend = 0, yend = 0.5), size = 0.5, color = "black") +
+  geom_segment(aes(x = 0, y = 0.5, xend = 0.708, yend = 0.3), size = 0.5, color = "black") +
+  geom_segment(aes(x = 0.708, y = 0.3, xend = 0.708, yend = 0.15), size = 0.5, color = "black") +
+  scale_x_continuous(limits = c(-2,2)) +
+  scale_y_continuous(limits = c(0,5)) +
+  labs(title = "S+M vs. Velo")
+
+BIPVelo <- HitterData%>%
+  filter(pitchcall == "InPlay" & relspeed > 91)%>%
+  ggplot() +geom_density_2d_filled(aes(x = platelocside, y = platelocheight),bins=9,alpha = .8,show.legend = FALSE)+scale_fill_brewer()+geom_point(aes(x = platelocside, y = platelocheight,color = taggedhittype))+
+  geom_polygon(data = Zone, inherit.aes = F,aes(x=x,y=y), color = 'black', fill = 'transparent')+
+  geom_polygon(data = Heart, inherit.aes = F,aes(x=x,y=y), color = 'black', fill = 'transparent', linetype = 'dashed')+
+  geom_segment(aes(x = -0.708, y = 0.15, xend = 0.708, yend = 0.15), size = 0.5, color = "black") +
+  geom_segment(aes(x = -0.708, y = 0.3, xend = -0.708, yend = 0.15), size = 0.5, color = "black") +
+  geom_segment(aes(x = -0.708, y = 0.3, xend = 0, yend = 0.5), size = 0.5, color = "black") +
+  geom_segment(aes(x = 0, y = 0.5, xend = 0.708, yend = 0.3), size = 0.5, color = "black") +
+  geom_segment(aes(x = 0.708, y = 0.3, xend = 0.708, yend = 0.15), size = 0.5, color = "black") +
+  scale_x_continuous(limits = c(-2,2)) +
+  scale_y_continuous(limits = c(0,5)) +
+  labs(title = "BIP vs. Velo")
+
+mid <- mean(HitterData$exitspeed,na.rm = TRUE)
+
+FBRes <- HitterData%>%
+  filter((taggedpitchtype == "FourSeamFastBall" |taggedpitchtype == "Sinker" | taggedpitchtype == "Fastball" | taggedpitchtype == "TwoSeamFastBall") & (pitchcall == "StrikeSwinging" | pitchcall == "InPlay" | pitchcall == "FoulBall"))%>%
+  ggplot()+geom_point(aes(x = platelocside, y = platelocheight,color = exitspeed)) + scale_color_gradient2(midpoint = mid, low = "blue", mid = "white",high = "red", space = "Lab",na.value = "grey50")+
+  geom_polygon(data = Zone, inherit.aes = F,aes(x=x,y=y), color = 'black', fill = 'transparent')+
+  geom_polygon(data = Heart, inherit.aes = F,aes(x=x,y=y), color = 'black', fill = 'transparent', linetype = 'dashed')+
+  geom_segment(aes(x = -0.708, y = 0.15, xend = 0.708, yend = 0.15), size = 0.5, color = "black") +
+  geom_segment(aes(x = -0.708, y = 0.3, xend = -0.708, yend = 0.15), size = 0.5, color = "black") +
+  geom_segment(aes(x = -0.708, y = 0.3, xend = 0, yend = 0.5), size = 0.5, color = "black") +
+  geom_segment(aes(x = 0, y = 0.5, xend = 0.708, yend = 0.3), size = 0.5, color = "black") +
+  geom_segment(aes(x = 0.708, y = 0.3, xend = 0.708, yend = 0.15), size = 0.5, color = "black") +
+  scale_x_continuous(limits = c(-2,2)) +
+  scale_y_continuous(limits = c(0,5)) +
+  labs(title = "Fastballs All Swings")
+
+BBRes <- HitterData%>%
+  filter((taggedpitchtype == "Curveball" |taggedpitchtype == "Slider") & (pitchcall == "StrikeSwinging" | pitchcall == "InPlay" | pitchcall == "FoulBall"))%>%
+  ggplot()+geom_point(aes(x = platelocside, y = platelocheight,color = exitspeed)) + scale_color_gradient2(midpoint = mid, low = "blue", mid = "white",high = "red", space = "Lab",na.value = "grey50")+
+  geom_polygon(data = Zone, inherit.aes = F,aes(x=x,y=y), color = 'black', fill = 'transparent')+
+  geom_polygon(data = Heart, inherit.aes = F,aes(x=x,y=y), color = 'black', fill = 'transparent', linetype = 'dashed')+
+  geom_segment(aes(x = -0.708, y = 0.15, xend = 0.708, yend = 0.15), size = 0.5, color = "black") +
+  geom_segment(aes(x = -0.708, y = 0.3, xend = -0.708, yend = 0.15), size = 0.5, color = "black") +
+  geom_segment(aes(x = -0.708, y = 0.3, xend = 0, yend = 0.5), size = 0.5, color = "black") +
+  geom_segment(aes(x = 0, y = 0.5, xend = 0.708, yend = 0.3), size = 0.5, color = "black") +
+  geom_segment(aes(x = 0.708, y = 0.3, xend = 0.708, yend = 0.15), size = 0.5, color = "black") +
+  scale_x_continuous(limits = c(-2,2)) +
+  scale_y_continuous(limits = c(0,5)) +
+  labs(title = "Breaking Balls All Swings")
+
+OSRes <- HitterData%>%
+  filter((taggedpitchtype == "ChangeUp" |taggedpitchtype == "Splitter") & (pitchcall == "StrikeSwinging" | pitchcall == "InPlay" | pitchcall == "FoulBall"))%>%
+  ggplot()+geom_point(aes(x = platelocside, y = platelocheight,color = exitspeed)) + scale_color_gradient2(midpoint = mid, low = "blue", mid = "white",high = "red", space = "Lab", na.value = "grey50")+
+  geom_polygon(data = Zone, inherit.aes = F,aes(x=x,y=y), color = 'black', fill = 'transparent')+
+  geom_polygon(data = Heart, inherit.aes = F,aes(x=x,y=y), color = 'black', fill = 'transparent', linetype = 'dashed')+
+  geom_segment(aes(x = -0.708, y = 0.15, xend = 0.708, yend = 0.15), size = 0.5, color = "black") +
+  geom_segment(aes(x = -0.708, y = 0.3, xend = -0.708, yend = 0.15), size = 0.5, color = "black") +
+  geom_segment(aes(x = -0.708, y = 0.3, xend = 0, yend = 0.5), size = 0.5, color = "black") +
+  geom_segment(aes(x = 0, y = 0.5, xend = 0.708, yend = 0.3), size = 0.5, color = "black") +
+  geom_segment(aes(x = 0.708, y = 0.3, xend = 0.708, yend = 0.15), size = 0.5, color = "black") +
+  scale_x_continuous(limits = c(-2,2)) +
+  scale_y_continuous(limits = c(0,5)) +
+  labs(title = "Offspeed All Swings")
+
+TwoK <- HitterData%>%
+  filter((pitchcall == "StrikeSwinging" | pitchcall == "InPlay" | pitchcall == "FoulBall")&(count == "1-2" | count == "2-2" | count == "0-2"| count == "3-2"))%>%
+  ggplot(aes(x = platelocside, y = platelocheight)) +geom_density_2d_filled(bins=9,alpha = 0.8)+scale_fill_brewer()+theme(legend.position="none")+geom_point()+
+  geom_polygon(data = Zone, inherit.aes = F,aes(x=x,y=y), color = 'black', fill = 'transparent')+
+  geom_polygon(data = Heart, inherit.aes = F,aes(x=x,y=y), color = 'black', fill = 'transparent', linetype = 'dashed')+
+  geom_segment(aes(x = -0.708, y = 0.15, xend = 0.708, yend = 0.15), size = 0.5, color = "black") +
+  geom_segment(aes(x = -0.708, y = 0.3, xend = -0.708, yend = 0.15), size = 0.5, color = "black") +
+  geom_segment(aes(x = -0.708, y = 0.3, xend = 0, yend = 0.5), size = 0.5, color = "black") +
+  geom_segment(aes(x = 0, y = 0.5, xend = 0.708, yend = 0.3), size = 0.5, color = "black") +
+  geom_segment(aes(x = 0.708, y = 0.3, xend = 0.708, yend = 0.15), size = 0.5, color = "black") +
+  scale_x_continuous(limits = c(-2,2)) +
+  scale_y_continuous(limits = c(0,5)) +
+  labs(title = "Swings With 2 Strikes")
+
+```
+
+*`r Title`*
+```{r, echo=FALSE, warning=FALSE,results = 'asis',fig.width=8,warning=FALSE,error=FALSE}
+## The rest of the code just prints the tables and plots
+PitchByPitch %>%
+  kbl(format="latex", digits = 3, caption = "Individual Pitch Summary", booktabs = "T") %>%
+   kable_styling(latex_options = "hold_position", full_width = FALSE, font_size = 8)
+AheadTable %>%
+  kbl(format="latex", digits = 3, caption = "Ahead In The Count", booktabs = "T") %>%
+   kable_styling(latex_options = "hold_position", full_width = FALSE, font_size = 8)
+BehindTable%>%
+  kbl(format="latex", digits = 3, caption = "Behind In The Count", booktabs = "T") %>%
+   kable_styling(latex_options = "hold_position", full_width = FALSE, font_size = 8)
+
+```
+```{r, echo=FALSE, warning=FALSE,results = 'asis',fig.width=8,warning=FALSE,error=FALSE, out.width = '50%', out.height= '50%'}
+SwingPlot
+SwingMiss
+SwingsAhead
+SwingsBehind
+HardHit
+Barrels
+SMVelo
+BIPVelo
+FBRes
+BBRes
+OSRes
+TwoK
+```
+```{r, echo=FALSE, warning=FALSE,results = 'asis',fig.width=8,warning=FALSE,error=FALSE, out.width = '50%', out.height= '50%'}
+
+```
+```{r, echo=FALSE, warning=FALSE,results = 'asis',fig.width=8,warning=FALSE,error=FALSE, out.width = '50%', out.height= '50%'}
+
+```
+```{r, echo=FALSE, warning=FALSE,results = 'asis',fig.width=8,warning=FALSE,error=FALSE}
+```

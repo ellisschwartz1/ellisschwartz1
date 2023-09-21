@@ -1,4 +1,4 @@
-### Hi there 👋
+### These are the various projects that I have worked on during my time working for the Trenton Thunder, as well as on my own.
 
 <!--
 **ellisschwartz1/ellisschwartz1** is a ✨ _special_ ✨ repository because its `README.md` (this file) appears on your GitHub profile.

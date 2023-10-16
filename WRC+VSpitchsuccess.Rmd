@@ -1,0 +1,43 @@
+---
+title: "WOBAPITCHES"
+author: "Ellis Schwartz"
+date: "2022-10-17"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+```{r}
+library(tidyverse)
+library(dslabs)
+```
+
+```{r}
+pitches21 <- read.csv("/Users/ellisschwartz/Desktop/80grade/2021wrcpitches.csv")
+pitches22 <- read.csv("/Users/ellisschwartz/Desktop/80grade/2022wrcpitches.csv")
+withyr21 <- pitches21%>%
+  mutate(year = 2021)
+withyr22 <- pitches22%>%
+  mutate(year = 2022)
+wrcboth <- rbind(withyr21,withyr22)
+colnames(wrcboth)[3] <- "wrcpl"
+
+newwrc <- wrcboth%>%
+  group_by(Name)%>%
+  filter(n() == 2)%>%
+  summarize(wrc21 = wrcpl[year == 2021], wrc22 = wrcpl[year == 2022],diffwrc = wrc22-wrc21,fb21 = wFB.C[year == 2021], fb22 = wFB.C[year == 2022],fbchng = fb22-fb21,sl21 = wSL.C[year == 2021], sl22 = wSL.C[year == 2022],slchng = sl22-sl21, ct21 = wCT.C[year == 2021], ct22 = wCT.C[year == 2022],ctchng = ct22-ct21, cb21 = wCB.C[year == 2021], cb22 = wCB.C[year == 2022],cbchng = cb22-cb21,ch21 = wCH.C[year == 2021], ch22 = wCH.C[year == 2022],chchng = ch22-ch21)
+  
+```
+
+```{r}
+newwrc%>%
+  arrange(desc(slchng))%>%
+  summarize(Name,slchng)
+ggplot(data = newwrc)+geom_point(aes(x = fbchng, y =diffwrc))+geom_smooth(aes(x = fbchng, y = diffwrc), method = "lm")+labs(x = "Change in wFB/C",y="Change in wRC+",title = "Change in Run Production\n on FB Vs. Change in wRC+")+theme_minimal()+xlim(-7,7)+ylim(-60,60)
+wrcfb = lm(diffwrc~chchng,data = newwrc)
+summary(wrcfb)
+predict(wrcfb,newdata = 1)
+cor(newwrc$ctchng,newwrc$diffwrc)
+wrcfb
+
+```
+
